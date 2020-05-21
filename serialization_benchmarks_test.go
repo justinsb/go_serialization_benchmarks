@@ -16,9 +16,10 @@ import (
 	"github.com/alecthomas/binary"
 	"github.com/davecgh/go-xdr/xdr"
 	capn "github.com/glycerine/go-capnproto"
-	"github.com/gogo/protobuf/proto"
+	gogoproto "github.com/gogo/protobuf/proto"
+	goproto "github.com/golang/protobuf/proto"
 	flatbuffers "github.com/google/flatbuffers/go"
-	"github.com/hprose/hprose-go"
+	hprose "github.com/hprose/hprose-go"
 	hprose2 "github.com/hprose/hprose-golang/io"
 	ikea "github.com/ikkerens/ikeapack"
 	jsoniter "github.com/json-iterator/go"
@@ -29,9 +30,12 @@ import (
 	"github.com/ugorji/go/codec"
 	vmihailenco "github.com/vmihailenco/msgpack/v4"
 	"go.dedis.ch/protobuf"
+	newproto "google.golang.org/protobuf/proto"
 	"gopkg.in/mgo.v2/bson"
 	capnp "zombiezen.com/go/capnproto2"
 )
+
+const GenerateCount = 100000000
 
 var (
 	validate     = os.Getenv("VALIDATE")
@@ -47,8 +51,8 @@ func randString(l int) string {
 }
 
 func generate() []*A {
-	a := make([]*A, 0, 1000)
-	for i := 0; i < 1000; i++ {
+	a := make([]*A, 0, GenerateCount)
+	for i := 0; i < cap(a); i++ {
 		a = append(a, &A{
 			Name:     randString(16),
 			BirthDay: time.Now(),
@@ -186,8 +190,8 @@ func BenchmarkGotinyUnmarshal(b *testing.B) {
 }
 
 func generateNoTimeA() []*NoTimeA {
-	a := make([]*NoTimeA, 0, 1000)
-	for i := 0; i < 1000; i++ {
+	a := make([]*NoTimeA, 0, GenerateCount)
+	for i := 0; i < cap(a); i++ {
 		a = append(a, &NoTimeA{
 			Name:     randString(16),
 			BirthDay: time.Now().UnixNano(),
@@ -804,30 +808,71 @@ func BenchmarkProtobufUnmarshal(b *testing.B) {
 	benchUnmarshal(b, ProtobufSerializer{})
 }
 
+// google.golang.org/protobuf/proto
+
+func generateNewProtoV3() []*ProtoBufV3 {
+	a := make([]*ProtoBufV3, 0, GenerateCount)
+	for i := 0; i < cap(a); i++ {
+		a = append(a, &ProtoBufV3{
+			Name:     randString(16),
+			BirthDay: time.Now().UnixNano(),
+			Phone:    randString(10),
+			Siblings: rand.Int31n(5),
+			Spouse:   rand.Intn(2) == 1,
+			Money:    rand.Float64(),
+		})
+	}
+	return a
+}
+
+func BenchmarkNewprotobufV3Marshal(b *testing.B) {
+	data := generateNewProtoV3()
+	b.ReportAllocs()
+	if _, err := newproto.Marshal(data[0]); err != nil {
+		b.Fatal(err)
+	}
+
+	b.ResetTimer()
+	var serialSize int
+	for i := 0; i < b.N; i++ {
+		bytes, err := newproto.Marshal(data[rand.Intn(len(data))])
+		if err != nil {
+			b.Fatal(err)
+		}
+		serialSize += len(bytes)
+
+	}
+	b.ReportMetric(float64(serialSize)/float64(b.N), "B/serial")
+}
+
 // github.com/golang/protobuf
 
-func generateProto() []*ProtoBufA {
-	a := make([]*ProtoBufA, 0, 1000)
-	for i := 0; i < 1000; i++ {
+func generateGoProto() []*ProtoBufA {
+	a := make([]*ProtoBufA, 0, GenerateCount)
+	for i := 0; i < cap(a); i++ {
 		a = append(a, &ProtoBufA{
-			Name:     proto.String(randString(16)),
-			BirthDay: proto.Int64(time.Now().UnixNano()),
-			Phone:    proto.String(randString(10)),
-			Siblings: proto.Int32(rand.Int31n(5)),
-			Spouse:   proto.Bool(rand.Intn(2) == 1),
-			Money:    proto.Float64(rand.Float64()),
+			Name:     goproto.String(randString(16)),
+			BirthDay: goproto.Int64(time.Now().UnixNano()),
+			Phone:    goproto.String(randString(10)),
+			Siblings: goproto.Int32(rand.Int31n(5)),
+			Spouse:   goproto.Bool(rand.Intn(2) == 1),
+			Money:    goproto.Float64(rand.Float64()),
 		})
 	}
 	return a
 }
 
 func BenchmarkGoprotobufMarshal(b *testing.B) {
-	data := generateProto()
+	data := generateGoProto()
 	b.ReportAllocs()
+	if _, err := goproto.Marshal(data[0]); err != nil {
+		b.Fatal(err)
+	}
+
 	b.ResetTimer()
 	var serialSize int
 	for i := 0; i < b.N; i++ {
-		bytes, err := proto.Marshal(data[rand.Intn(len(data))])
+		bytes, err := goproto.Marshal(data[rand.Intn(len(data))])
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -836,14 +881,49 @@ func BenchmarkGoprotobufMarshal(b *testing.B) {
 	b.ReportMetric(float64(serialSize)/float64(b.N), "B/serial")
 }
 
+func generateGoProtoV3() []*ProtoBufV3 {
+	a := make([]*ProtoBufV3, 0, GenerateCount)
+	for i := 0; i < cap(a); i++ {
+		a = append(a, &ProtoBufV3{
+			Name:     randString(16),
+			BirthDay: time.Now().UnixNano(),
+			Phone:    randString(10),
+			Siblings: rand.Int31n(5),
+			Spouse:   rand.Intn(2) == 1,
+			Money:    rand.Float64(),
+		})
+	}
+	return a
+}
+
+func BenchmarkGoprotobufV3Marshal(b *testing.B) {
+	data := generateGoProtoV3()
+	b.ReportAllocs()
+	if _, err := goproto.Marshal(data[0]); err != nil {
+		b.Fatal(err)
+	}
+
+	b.ResetTimer()
+	var serialSize int
+	for i := 0; i < b.N; i++ {
+		bytes, err := goproto.Marshal(data[rand.Intn(len(data))])
+		if err != nil {
+			b.Fatal(err)
+		}
+		serialSize += len(bytes)
+
+	}
+	b.ReportMetric(float64(serialSize)/float64(b.N), "B/serial")
+}
+
 func BenchmarkGoprotobufUnmarshal(b *testing.B) {
 	b.StopTimer()
-	data := generateProto()
+	data := generateGoProto()
 	ser := make([][]byte, len(data))
 	var serialSize int
 	for i, d := range data {
 		var err error
-		ser[i], err = proto.Marshal(d)
+		ser[i], err = goproto.Marshal(d)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -856,7 +936,7 @@ func BenchmarkGoprotobufUnmarshal(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		n := rand.Intn(len(ser))
 		o := &ProtoBufA{}
-		err := proto.Unmarshal(ser[n], o)
+		err := goproto.Unmarshal(ser[n], o)
 		if err != nil {
 			b.Fatalf("goprotobuf failed to unmarshal: %s (%s)", err, ser[n])
 		}
@@ -874,8 +954,8 @@ func BenchmarkGoprotobufUnmarshal(b *testing.B) {
 // github.com/gogo/protobuf/proto
 
 func generateGogoProto() []*GogoProtoBufA {
-	a := make([]*GogoProtoBufA, 0, 1000)
-	for i := 0; i < 1000; i++ {
+	a := make([]*GogoProtoBufA, 0, GenerateCount)
+	for i := 0; i < cap(a); i++ {
 		a = append(a, &GogoProtoBufA{
 			Name:     randString(16),
 			BirthDay: time.Now().UnixNano(),
@@ -894,7 +974,7 @@ func BenchmarkGogoprotobufMarshal(b *testing.B) {
 	b.ResetTimer()
 	var serialSize int
 	for i := 0; i < b.N; i++ {
-		bytes, err := proto.Marshal(data[rand.Intn(len(data))])
+		bytes, err := gogoproto.Marshal(data[rand.Intn(len(data))])
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -910,7 +990,7 @@ func BenchmarkGogoprotobufUnmarshal(b *testing.B) {
 	var serialSize int
 	for i, d := range data {
 		var err error
-		ser[i], err = proto.Marshal(d)
+		ser[i], err = gogoproto.Marshal(d)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -923,7 +1003,7 @@ func BenchmarkGogoprotobufUnmarshal(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		n := rand.Intn(len(ser))
 		o := &GogoProtoBufA{}
-		err := proto.Unmarshal(ser[n], o)
+		err := gogoproto.Unmarshal(ser[n], o)
 		if err != nil {
 			b.Fatalf("goprotobuf failed to unmarshal: %s (%s)", err, ser[n])
 		}
@@ -941,8 +1021,8 @@ func BenchmarkGogoprotobufUnmarshal(b *testing.B) {
 // github.com/pascaldekloe/colfer
 
 func generateColfer() []*ColferA {
-	a := make([]*ColferA, 0, 1000)
-	for i := 0; i < 1000; i++ {
+	a := make([]*ColferA, 0, GenerateCount)
+	for i := 0; i < cap(a); i++ {
 		a = append(a, &ColferA{
 			Name:     randString(16),
 			BirthDay: time.Now(),
@@ -1006,8 +1086,8 @@ func BenchmarkColferUnmarshal(b *testing.B) {
 // github.com/andyleap/gencode
 
 func generateGencode() []*GencodeA {
-	a := make([]*GencodeA, 0, 1000)
-	for i := 0; i < 1000; i++ {
+	a := make([]*GencodeA, 0, GenerateCount)
+	for i := 0; i < cap(a); i++ {
 		a = append(a, &GencodeA{
 			Name:     randString(16),
 			BirthDay: time.Now(),
@@ -1071,8 +1151,8 @@ func BenchmarkGencodeUnmarshal(b *testing.B) {
 }
 
 func generateGencodeUnsafe() []*GencodeUnsafeA {
-	a := make([]*GencodeUnsafeA, 0, 1000)
-	for i := 0; i < 1000; i++ {
+	a := make([]*GencodeUnsafeA, 0, GenerateCount)
+	for i := 0; i < cap(a); i++ {
 		a = append(a, &GencodeUnsafeA{
 			Name:     randString(16),
 			BirthDay: time.Now().UnixNano(),
@@ -1138,8 +1218,8 @@ func BenchmarkGencodeUnsafeUnmarshal(b *testing.B) {
 // github.com/calmh/xdr
 
 func generateXDR() []*XDRA {
-	a := make([]*XDRA, 0, 1000)
-	for i := 0; i < 1000; i++ {
+	a := make([]*XDRA, 0, GenerateCount)
+	for i := 0; i < cap(a); i++ {
 		a = append(a, &XDRA{
 			Name:     randString(16),
 			BirthDay: time.Now().UnixNano(),
@@ -1238,8 +1318,8 @@ type IkeA struct {
 }
 
 func generateIkeA() []*IkeA {
-	a := make([]*IkeA, 0, 1000)
-	for i := 0; i < 1000; i++ {
+	a := make([]*IkeA, 0, GenerateCount)
+	for i := 0; i < cap(a); i++ {
 		a = append(a, &IkeA{
 			Name:     randString(16),
 			BirthDay: time.Now().UnixNano(),
@@ -1347,8 +1427,8 @@ func BenchmarkShamatonArrayMsgpackUnmarshal(b *testing.B) {
 // github.com/prysmaticlabs/go-ssz
 
 func generateNoTimeNoStringNoFloatA() []*NoTimeNoStringNoFloatA {
-	a := make([]*NoTimeNoStringNoFloatA, 0, 1000)
-	for i := 0; i < 1000; i++ {
+	a := make([]*NoTimeNoStringNoFloatA, 0, GenerateCount)
+	for i := 0; i < cap(a); i++ {
 		a = append(a, &NoTimeNoStringNoFloatA{
 			Name:     []byte(randString(16)),
 			BirthDay: uint64(time.Now().UnixNano()),
